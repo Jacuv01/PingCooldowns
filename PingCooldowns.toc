@@ -1,0 +1,15 @@
+## Interface: 100200
+## Title: PingCooldowns
+## Notes: An addon to manage ping cooldowns in World of Warcraft.
+## Author: Jacuv
+## Version: 1.0.0-beta
+## SavedVariables: PingCooldownsDB
+## X-Curse-Project-ID: 0000000000
+
+# Main Addon File
+PingCooldowns.lua
+
+# Core modules
+Modules/frames.lua
+Modules/functions.lua
+Modules/events.lua
