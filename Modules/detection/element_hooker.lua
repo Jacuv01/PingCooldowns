@@ -86,40 +86,31 @@ function PingCooldowns:HookCooldownButtons(container, viewerName)
 end
 
 function PingCooldowns:HookCooldownElement(element)
-    PingCooldowns.hookedElements = PingCooldowns.hookedElements or {}
-    
-    if PingCooldowns.hookedElements[element] then
+    if element.hookedByPingCooldowns then
         return
     end
    
-    PingCooldowns.hookedElements[element] = {
-        lastClick = 0,
-        mouseOver = false,
-        altDetected = false
-    }
+    element.hookedByPingCooldowns = true
+    element.pingCooldownsLastClick = 0
+    element.pingCooldownsMouseOver = false
+    element.pingCooldownsAltDetected = false
    
     local function ResetClickState(self)
-        if PingCooldowns.hookedElements[self] then
-            PingCooldowns.hookedElements[self].altDetected = false
-        end
+        self.pingCooldownsAltDetected = false
     end
    
     if element.HookScript then
         local hoverSuccess = pcall(function()
             element:HookScript("OnEnter", function(self)
-                if PingCooldowns.hookedElements[self] then
-                    PingCooldowns.hookedElements[self].mouseOver = true
-                    if IsAltKeyDown() then
-                        PingCooldowns.hookedElements[self].altDetected = true
-                        PingCooldowns:Log("Alt+Hover detected, ready for click...")
-                    end
+                self.pingCooldownsMouseOver = true
+                if IsAltKeyDown() then
+                    self.pingCooldownsAltDetected = true
+                    PingCooldowns:Log("Alt+Hover detected, ready for click...")
                 end
             end)
             
             element:HookScript("OnLeave", function(self)
-                if PingCooldowns.hookedElements[self] then
-                    PingCooldowns.hookedElements[self].mouseOver = false
-                end
+                self.pingCooldownsMouseOver = false
                 C_Timer.After(3.0, function()
                     if self then
                         ResetClickState(self)
@@ -128,28 +119,22 @@ function PingCooldowns:HookCooldownElement(element)
             end)
             
             element:HookScript("OnUpdate", function(self)
-                if PingCooldowns.hookedElements[self] and 
-                   PingCooldowns.hookedElements[self].mouseOver and 
-                   IsAltKeyDown() and 
-                   not PingCooldowns.hookedElements[self].altDetected then
-                    PingCooldowns.hookedElements[self].altDetected = true
+                if self.pingCooldownsMouseOver and IsAltKeyDown() and not self.pingCooldownsAltDetected then
+                    self.pingCooldownsAltDetected = true
                     PingCooldowns:Log("Alt pressed during hover, ready for click...")
                 end
             end)
             
             element:HookScript("OnMouseDown", function(self, button)
-                if button == "LeftButton" and 
-                   PingCooldowns.hookedElements[self] and 
-                   PingCooldowns.hookedElements[self].altDetected and 
-                   IsAltKeyDown() then
+                if button == "LeftButton" and self.pingCooldownsAltDetected and IsAltKeyDown() then
                     local currentTime = GetTime()
-                    local timeSinceLastClick = currentTime - (PingCooldowns.hookedElements[self].lastClick or 0)
+                    local timeSinceLastClick = currentTime - (self.pingCooldownsLastClick or 0)
                     
                     if timeSinceLastClick > 0.5 then
                         PingCooldowns:Log("Alt+Click detected! Triggering cooldown share...")
                         PingCooldowns:HandleCooldownClick(self)
                         ResetClickState(self)
-                        PingCooldowns.hookedElements[self].lastClick = currentTime
+                        self.pingCooldownsLastClick = currentTime
                     else
                         PingCooldowns:Log("Click too soon, ignoring...")
                     end
