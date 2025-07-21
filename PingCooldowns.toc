@@ -9,7 +9,13 @@
 # Main Addon File
 PingCooldowns.lua
 
-# Core modules
-Modules/frames.lua
-Modules/functions.lua
-Modules/events.lua
+# Core modules - Load order is important
+Modules/core/logging.lua
+Modules/core/rate_limiter.lua
+Modules/core/initialization.lua
+
+# Detection modules
+Modules/detection/element_hooker.lua
+
+# Processing modules
+Modules/processing/event_handler.lua
