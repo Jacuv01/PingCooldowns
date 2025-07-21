@@ -105,11 +105,8 @@ function PingCooldowns:FindSpellIDByName(spellName)
         return nil, nil
     end
     
-    -- Usar la API correcta para líneas de habilidades del spellbook
-    local numSkillLines = C_SpellBook.GetNumSpellBookSkillLines()
-    
-    for skillLineIndex = 1, numSkillLines do
-        local skillLineInfo = C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)
+    for specIndex = 1, GetNumSpecializations() do
+        local skillLineInfo = C_SpellBook.GetSpellBookSkillLineInfo(specIndex)
         if skillLineInfo then
             for i = skillLineInfo.itemIndexOffset + 1, skillLineInfo.itemIndexOffset + skillLineInfo.numSpellBookItems do
                 local spellInfo = C_SpellBook.GetSpellBookItemInfo(i, Enum.SpellBookSpellBank.Player)
