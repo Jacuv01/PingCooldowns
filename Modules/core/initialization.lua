@@ -1,5 +1,17 @@
 local _, PingCooldowns = ...
 
+local COOLDOWN_ADDONS = {
+    "EssentialCooldowns",
+    "UtilityCooldowns", 
+    "BuffIconCooldowns",
+    "WeakAuras",
+    "TellMeWhen",
+    "OmniCC",
+    "ElvUI",
+    "Bartender4",
+    "Dominos"
+}
+
 function PingCooldowns:OnLogin()
     self:Log("PingCooldowns addon loaded successfully!")
     
@@ -32,19 +44,7 @@ function PingCooldowns:PLAYER_ENTERING_WORLD(isInitialLogin, isReloadingUi)
 end
 
 function PingCooldowns:ADDON_LOADED(addonName)
-    local cooldownAddons = {
-        "EssentialCooldowns",
-        "UtilityCooldowns", 
-        "BuffIconCooldowns",
-        "WeakAuras",
-        "TellMeWhen",
-        "OmniCC",
-        "ElvUI",
-        "Bartender4",
-        "Dominos"
-    }
-    
-    for _, cooldownAddon in ipairs(cooldownAddons) do
+    for _, cooldownAddon in ipairs(COOLDOWN_ADDONS) do
         if addonName == cooldownAddon then
             self:Log("Cooldown addon detected: " .. addonName)
             C_Timer.After(0.5, function()
