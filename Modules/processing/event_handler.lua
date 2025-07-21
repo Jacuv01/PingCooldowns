@@ -313,7 +313,7 @@ function PingCooldowns:CheckGroupStatus()
             "Find a party and show off your cooldown skills!"
         }
         
-        local randomMessage = funnyMessages[math.random(#funnyMessages)]     
+        local randomMessage = funnyMessages[math.random(#funnyMessages)]
         return true, randomMessage, groupType
     end
     
