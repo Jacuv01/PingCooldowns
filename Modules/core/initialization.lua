@@ -13,6 +13,10 @@ function PingCooldowns:OnLogin()
     self:RegisterEvent("ADDON_LOADED") 
     self:RegisterEvent("SPELLS_CHANGED")
     self:RegisterEvent("UI_INFO_MESSAGE")
+    self:RegisterEvent("PLAYER_TALENT_UPDATE")
+    self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    self:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 end
 
 function PingCooldowns:PLAYER_ENTERING_WORLD(isInitialLogin, isReloadingUi)
@@ -53,7 +57,41 @@ function PingCooldowns:ADDON_LOADED(addonName)
 end
 
 function PingCooldowns:SPELLS_CHANGED()
+    self:Log("Spells changed, re-hooking elements...")
     C_Timer.After(0.1, function()
+        self:ResetHookedElements()
+        self:HookCooldownViewers()
+    end)
+end
+
+function PingCooldowns:PLAYER_TALENT_UPDATE()
+    self:Log("Talents updated, re-hooking elements...")
+    C_Timer.After(0.5, function()
+        self:ResetHookedElements()
+        self:HookCooldownViewers()
+    end)
+end
+
+function PingCooldowns:ACTIVE_TALENT_GROUP_CHANGED()
+    self:Log("Talent group changed, re-hooking elements...")
+    C_Timer.After(0.5, function()
+        self:ResetHookedElements()
+        self:HookCooldownViewers()
+    end)
+end
+
+function PingCooldowns:TRAIT_CONFIG_UPDATED()
+    self:Log("Trait config updated, re-hooking elements...")
+    C_Timer.After(0.5, function()
+        self:ResetHookedElements()
+        self:HookCooldownViewers()
+    end)
+end
+
+function PingCooldowns:PLAYER_SPECIALIZATION_CHANGED()
+    self:Log("Specialization changed, re-hooking elements...")
+    C_Timer.After(0.5, function()
+        self:ResetHookedElements()
         self:HookCooldownViewers()
     end)
 end
@@ -62,5 +100,22 @@ function PingCooldowns:UI_INFO_MESSAGE()
     C_Timer.After(0.2, function()
         self:HookCooldownViewers()
     end)
+end
+
+function PingCooldowns:ResetHookedElements()
+    self:Log("Resetting hooked elements...")
+    if self.hookedViewers then
+        for viewerName, _ in pairs(self.hookedViewers) do
+            self.hookedViewers[viewerName] = nil
+        end
+    end
+    
+    if PingCooldowns.hookedElements then
+        for element, _ in pairs(PingCooldowns.hookedElements) do
+            PingCooldowns.hookedElements[element] = nil
+        end
+    end
+    
+    self:Log("All hooked elements reset")
 end
 
