@@ -10,6 +10,7 @@ addon.ElementHooker = ElementHooker
 -- Track whether we've already set up our system
 local systemInitialized = false
 local originalGetCooldownIDs = {}
+local processingInProgress = {} -- Anti-reentry protection
 
 function ElementHooker:Initialize()
     if systemInitialized then
@@ -101,37 +102,9 @@ function ElementHooker:SetupEventHandler()
 end
 
 function ElementHooker:SetupCooldownIDReplacements()
-    local viewers = {
-        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
-    }
-
-    for _, viewerData in ipairs(viewers) do
-        local viewer = viewerData.viewer
-        local name = viewerData.name
-        
-        if viewer and viewer.GetCooldownIDs then
-            -- Store original function
-            originalGetCooldownIDs[name] = viewer.GetCooldownIDs
-            
-            -- Replace with our enhanced version
-            viewer.GetCooldownIDs = function(self)
-                addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs called", name))
-                
-                -- Call original function to get IDs
-                local originalIDs = originalGetCooldownIDs[name](self)
-                
-                -- Process the cooldown elements for ping functionality
-                ElementHooker:ProcessCooldownElements(self, name)
-                
-                return originalIDs
-            end
-            
-            addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs replaced", name))
-        end
-    end
+    -- DISABLED: This was causing stack overflow
+    -- Instead, we'll rely only on SetLayout hooks and periodic refresh
+    addon.Logger:Debug("ElementHooker", "Skipping GetCooldownIDs hooks to prevent stack overflow")
 end
 
 function ElementHooker:SetupLayoutEnhancements()
@@ -158,13 +131,11 @@ function ElementHooker:SetupLayoutEnhancements()
                 
                 -- Create enhanced SetLayout
                 viewer.SetLayout = function(self, ...)
-                    addon.Logger:Debug("ElementHooker", string.format("%s SetLayout called", name))
-                    
-                    -- Call original SetLayout
+                    -- Call original SetLayout first
                     ElementHooker.originalSetLayout[name](self, ...)
                     
-                    -- Add our ping functionality after layout
-                    C_Timer.After(0.1, function()
+                    -- Add our ping functionality after layout with longer delay
+                    C_Timer.After(0.5, function()
                         ElementHooker:ProcessCooldownElements(self, name)
                     end)
                 end
@@ -173,16 +144,42 @@ function ElementHooker:SetupLayoutEnhancements()
             end
         end
     end
+    
+    -- Also set up periodic refresh to catch missed updates
+    self:SetupPeriodicRefresh()
+end
+
+function ElementHooker:SetupPeriodicRefresh()
+    -- Set up a periodic timer to refresh frames every 5 seconds
+    if not self.periodicTimer then
+        self.periodicTimer = C_Timer.NewTicker(5, function()
+            self:DoPeriodicRefresh()
+        end)
+        addon.Logger:Debug("ElementHooker", "Periodic refresh timer set up")
+    end
+end
+
+function ElementHooker:DoPeriodicRefresh()
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+    
+    for _, viewerData in ipairs(viewers) do
+        if viewerData.viewer then
+            self:ProcessCooldownElements(viewerData.viewer, viewerData.name)
+        end
+    end
 end
 
 function ElementHooker:ProcessCooldownElements(viewer, viewerType)
     if not viewer then
-        addon.Logger:Debug("ElementHooker", string.format("%s viewer is nil", viewerType))
         return
     end
     
     if not viewer.itemFramePool then
-        addon.Logger:Debug("ElementHooker", string.format("%s viewer has no itemFramePool", viewerType))
         return
     end
 
@@ -197,18 +194,15 @@ function ElementHooker:ProcessCooldownElements(viewer, viewerType)
         end
     end
 
-    addon.Logger:Info("ElementHooker", string.format("%s viewer: %d total frames, %d processed successfully", 
-        viewerType, totalCount, processedCount))
+    -- Only log if we actually processed something to reduce spam
+    if processedCount > 0 then
+        addon.Logger:Info("ElementHooker", string.format("%s viewer: %d/%d frames processed", 
+            viewerType, processedCount, totalCount))
+    end
 end
 
 function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
-    if not frame then
-        addon.Logger:Debug("ElementHooker", string.format("%s frame is nil", viewerType))
-        return false
-    end
-    
-    if frame.pingHookSetup then
-        addon.Logger:Debug("ElementHooker", string.format("%s frame already has ping hook", viewerType))
+    if not frame or frame.pingHookSetup then
         return false
     end
 
@@ -219,22 +213,14 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
     local cooldownID = frame.cooldownID
     local spellID = nil
     
-    addon.Logger:Debug("ElementHooker", string.format("%s frame cooldownID: %s", viewerType, tostring(cooldownID)))
-    
     if cooldownID then
         local cooldownInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         if cooldownInfo then
             spellID = cooldownInfo.spellID
-            addon.Logger:Debug("ElementHooker", string.format("%s frame spellID: %s", viewerType, tostring(spellID)))
-        else
-            addon.Logger:Debug("ElementHooker", string.format("%s frame cooldownInfo is nil", viewerType))
         end
-    else
-        addon.Logger:Debug("ElementHooker", string.format("%s frame has no cooldownID", viewerType))
     end
 
     if not spellID then
-        addon.Logger:Debug("ElementHooker", string.format("No spell ID found for %s frame", viewerType))
         return false
     end
 
@@ -250,7 +236,7 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
     
     clickFrame:SetScript("OnClick", function(self, button, down)
         if button == "LeftButton" then
-            addon.Logger:Info("ElementHooker", string.format("Left click on %s spell %d", viewerType, spellID))
+            addon.Logger:Info("ElementHooker", string.format("Ping: %s spell %d", viewerType, spellID))
             -- Use addon.PingService directly to ensure it's available
             if addon.PingService and addon.PingService.PingSpellCooldown then
                 addon.PingService:PingSpellCooldown(spellID)
@@ -258,7 +244,6 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
                 addon.Logger:Error("ElementHooker", "PingService not available")
             end
         elseif button == "RightButton" then
-            addon.Logger:Debug("ElementHooker", string.format("Right click on %s spell %d", viewerType, spellID))
             -- Pass through to original frame if it has click handlers
             if frame.GetScript and frame:GetScript("OnClick") then
                 frame:GetScript("OnClick")(frame, button, down)
@@ -266,7 +251,6 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
         end
     end)
 
-    addon.Logger:Info("ElementHooker", string.format("Set up ping overlay for %s spell %d", viewerType, spellID))
     return true
 end
 
@@ -327,9 +311,15 @@ function ElementHooker:Cleanup()
         self.eventFrame:SetScript("OnEvent", nil)
     end
     
-    -- Restore original functions if needed
-    if originalGetCooldownIDs then
-        for name, originalFunc in pairs(originalGetCooldownIDs) do
+    -- Cancel periodic timer
+    if self.periodicTimer then
+        self.periodicTimer:Cancel()
+        self.periodicTimer = nil
+    end
+    
+    -- Restore original SetLayout functions if needed
+    if self.originalSetLayout then
+        for name, originalFunc in pairs(self.originalSetLayout) do
             local viewerName = name .. "CooldownViewer"
             if name == "Buff" then
                 viewerName = "BuffIconCooldownViewer"
@@ -339,7 +329,7 @@ function ElementHooker:Cleanup()
             
             local viewer = _G[viewerName]
             if viewer then
-                viewer.GetCooldownIDs = originalFunc
+                viewer.SetLayout = originalFunc
             end
         end
     end
