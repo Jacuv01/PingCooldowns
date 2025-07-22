@@ -1,39 +1,79 @@
-local _, PingCooldowns = ...
+local addonName, addon = ...
 
-function PingCooldowns:OnLogin()
-    self:Log("PingCooldowns addon loaded successfully!")
+-- Core Initialization Module
+-- Handles addon startup and system initialization
+
+function addon:Initialize()
+    addon.Logger:Info("Core", "PingCooldowns addon loading...")
     
-    if self.RateLimiter and self.RateLimiter.Initialize then
-        self.RateLimiter:Initialize()
+    -- Initialize modules in order
+    if addon.RateLimiter and addon.RateLimiter.Initialize then
+        addon.RateLimiter:Initialize()
+        addon.Logger:Debug("Core", "Rate limiter initialized")
     end
+
+    if addon.PingService and addon.PingService.Initialize then
+        addon.PingService:Initialize()
+        addon.Logger:Debug("Core", "Ping service initialized")
+    end
+
+    -- Set up event handling
+    self:SetupEvents()
     
-    self.hookedViewers = self.hookedViewers or {}
-    
-    self:RegisterEvent("PLAYER_ENTERING_WORLD")
-    self:RegisterEvent("ADDON_LOADED") 
-    self:RegisterEvent("SPELLS_CHANGED")
-    self:RegisterEvent("UI_INFO_MESSAGE")
+    addon.Logger:Info("Core", "PingCooldowns addon loaded successfully!")
 end
 
-function PingCooldowns:PLAYER_ENTERING_WORLD(isInitialLogin, isReloadingUi)
-    if isInitialLogin or isReloadingUi then
-        self:Log("World loaded, searching for cooldown managers...")
-        self:HookCooldownViewers()
+function addon:SetupEvents()
+    if not self.eventFrame then
+        self.eventFrame = CreateFrame("Frame", "PingCooldownsCoreFrame")
+        self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        self.eventFrame:RegisterEvent("ADDON_LOADED")
         
-        C_Timer.After(1, function()
-            self:Log("Secondary search for late-loading addons...")
-            self:HookCooldownViewers()
+        self.eventFrame:SetScript("OnEvent", function(self, event, ...)
+            if event == "PLAYER_ENTERING_WORLD" then
+                addon:OnPlayerEnteringWorld(...)
+            elseif event == "ADDON_LOADED" then
+                addon:OnAddonLoaded(...)
+            end
         end)
     end
 end
 
-function PingCooldowns:ADDON_LOADED(addonName)
+function addon:OnPlayerEnteringWorld(isInitialLogin, isReloadingUi)
+    addon.Logger:Info("Core", "Player entering world")
+    
+    if isInitialLogin or isReloadingUi then
+        -- Initialize element hooker system with delay to allow UI to load
+        C_Timer.After(1, function()
+            addon.Logger:Info("Core", "Initializing element hooker system...")
+            
+            if addon.ElementHooker and addon.ElementHooker.Initialize then
+                if addon.ElementHooker:Initialize() then
+                    addon.Logger:Info("Core", "Element hooker system ready")
+                else
+                    addon.Logger:Error("Core", "Failed to initialize element hooker system")
+                end
+            else
+                addon.Logger:Error("Core", "ElementHooker module not found")
+            end
+        end)
+        
+        -- Secondary attempt for late-loading UI elements
+        C_Timer.After(3, function()
+            if addon.ElementHooker and addon.ElementHooker.RefreshSystem then
+                addon.Logger:Debug("Core", "Secondary system refresh")
+                addon.ElementHooker:RefreshSystem()
+            end
+        end)
+    end
+end
+
+function addon:OnAddonLoaded(loadedAddonName)
+    -- Watch for cooldown-related addons that might affect our hooking
     local cooldownAddons = {
-        "EssentialCooldowns",
-        "UtilityCooldowns", 
-        "BuffIconCooldowns",
+        "Blizzard_CooldownViewer",
         "WeakAuras",
-        "TellMeWhen",
+        "TellMeWhen", 
         "OmniCC",
         "ElvUI",
         "Bartender4",
@@ -41,26 +81,18 @@ function PingCooldowns:ADDON_LOADED(addonName)
     }
     
     for _, cooldownAddon in ipairs(cooldownAddons) do
-        if addonName == cooldownAddon then
-            self:Log("Cooldown addon detected: " .. addonName)
+        if loadedAddonName == cooldownAddon then
+            addon.Logger:Info("Core", string.format("Cooldown addon detected: %s", loadedAddonName))
+            
+            -- Refresh our system after other addons load
             C_Timer.After(0.5, function()
-                self:Log("Searching for " .. addonName .. " elements...")
-                self:HookCooldownViewers()
+                if addon.ElementHooker and addon.ElementHooker.RefreshSystem then
+                    addon.Logger:Debug("Core", string.format("Refreshing system after %s load", loadedAddonName))
+                    addon.ElementHooker:RefreshSystem()
+                end
             end)
             break
         end
     end
-end
-
-function PingCooldowns:SPELLS_CHANGED()
-    C_Timer.After(0.1, function()
-        self:HookCooldownViewers()
-    end)
-end
-
-function PingCooldowns:UI_INFO_MESSAGE()
-    C_Timer.After(0.2, function()
-        self:HookCooldownViewers()
-    end)
 end
 

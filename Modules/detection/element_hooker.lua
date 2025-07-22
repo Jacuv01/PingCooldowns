@@ -1,147 +1,373 @@
-local _, PingCooldowns = ...
+local addonName, addon = ...
 
-function PingCooldowns:HookCooldownViewers()
-    if not self.hookedViewers then
-        self.hookedViewers = {}
+-- Element Hooker Module
+-- This module implements a safe approach similar to CooldownManagerControl
+-- Instead of hooking SetLayout, we replace GetCooldownIDs function and use TRAIT_CONFIG_UPDATED
+
+local ElementHooker = {}
+addon.ElementHooker = ElementHooker
+
+-- Track whether we've already set up our system
+local systemInitialized = false
+local originalGetCooldownIDs = {}
+
+function ElementHooker:Initialize()
+    if systemInitialized then
+        addon.Logger:Debug("ElementHooker", "System already initialized, skipping")
+        return true
+    end
+
+    addon.Logger:Info("ElementHooker", "Setting up cooldown viewer system")
+    
+    -- Don't fail initialization - just set up the event handlers
+    -- The actual hooking will happen when events fire
+    self:SetupEventHandler()
+    
+    systemInitialized = true
+    addon.Logger:Info("ElementHooker", "Event handlers set up - will hook viewers when they become available")
+    
+    -- Try to do initial setup, but don't fail if it doesn't work
+    C_Timer.After(2, function()
+        self:TrySetupViewers()
+    end)
+    
+    return true
+end
+
+function ElementHooker:TrySetupViewers()
+    addon.Logger:Debug("ElementHooker", "Attempting to set up viewers...")
+    
+    -- Get references to the cooldown viewers with detailed logging
+    local viewers = {
+        { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
+        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }, 
+        { name = "BuffIconCooldownViewer", viewer = _G["BuffIconCooldownViewer"] },
+        { name = "BuffBarCooldownViewer", viewer = _G["BuffBarCooldownViewer"] }
+    }
+    
+    local foundCount = 0
+    for _, viewerData in ipairs(viewers) do
+        if viewerData.viewer then
+            foundCount = foundCount + 1
+            addon.Logger:Debug("ElementHooker", string.format("Found %s", viewerData.name))
+        else
+            addon.Logger:Debug("ElementHooker", string.format("Missing %s", viewerData.name))
+        end
     end
     
-    local found = {}
-    
-    local essentialViewer = _G["EssentialCooldownViewer"]
-    if essentialViewer and essentialViewer:IsVisible() and not self.hookedViewers["EssentialCooldownViewer"] then
-        self:HookCooldownButtons(essentialViewer, "EssentialCooldownViewer")
-        table.insert(found, "EssentialCooldownViewer")
-        self.hookedViewers["EssentialCooldownViewer"] = true
+    if foundCount == 0 then
+        addon.Logger:Warning("ElementHooker", "No cooldown viewers found - they may not be enabled or loaded yet")
+        return false
     end
     
-    local utilityViewer = _G["UtilityCooldownViewer"]
-    if utilityViewer and utilityViewer:IsVisible() and not self.hookedViewers["UtilityCooldownViewer"] then
-        self:HookCooldownButtons(utilityViewer, "UtilityCooldownViewer")
-        table.insert(found, "UtilityCooldownViewer")
-        self.hookedViewers["UtilityCooldownViewer"] = true
+    addon.Logger:Info("ElementHooker", string.format("Found %d/4 cooldown viewers", foundCount))
+    
+    -- Set up what we can
+    if foundCount > 0 then
+        self:SetupCooldownIDReplacements()
+        self:SetupLayoutEnhancements()
+        self:DoInitialProcessing()
     end
     
-    local buffIconViewer = _G["BuffIconCooldownViewer"]
-    if buffIconViewer and buffIconViewer:IsVisible() and not self.hookedViewers["BuffIconCooldownViewer"] then
-        self:HookCooldownButtons(buffIconViewer, "BuffIconCooldownViewer")
-        table.insert(found, "BuffIconCooldownViewer")
-        self.hookedViewers["BuffIconCooldownViewer"] = true
-    end
-    
-    if #found > 0 then
-        self:LogSuccess("Cooldown Viewers found: " .. table.concat(found, ", "))
-    else
-        self:Log("No new Cooldown Viewers found")
+    return foundCount > 0
+end
+
+function ElementHooker:SetupEventHandler()
+    -- Create event frame to handle spec/talent changes
+    if not self.eventFrame then
+        self.eventFrame = CreateFrame("Frame", "PingCooldownsEventFrame")
+        self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+        self.eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED") 
+        self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        
+        self.eventFrame:SetScript("OnEvent", function(self, event, ...)
+            addon.Logger:Debug("ElementHooker", string.format("Event received: %s", event))
+            
+            -- Use safe delay for critical events to avoid taint
+            if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
+                -- These events can cause taint, so wait longer and be more patient
+                addon.Logger:Debug("ElementHooker", "Critical event detected, scheduling delayed refresh")
+                C_Timer.After(3, function()
+                    ElementHooker:RefreshSystem(0) -- Start with retry count 0
+                end)
+            elseif event == "PLAYER_ENTERING_WORLD" then
+                -- This is usually safe but give it a moment to settle
+                C_Timer.After(1, function()
+                    ElementHooker:RefreshSystem(0)
+                end)
+            end
+        end)
     end
 end
 
-function PingCooldowns:HookCooldownButtons(container, viewerName)
-    if not container or not container.GetNumChildren then
+function ElementHooker:SetupCooldownIDReplacements()
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+
+    for _, viewerData in ipairs(viewers) do
+        local viewer = viewerData.viewer
+        local name = viewerData.name
+        
+        if viewer and viewer.GetCooldownIDs then
+            -- Store original function
+            originalGetCooldownIDs[name] = viewer.GetCooldownIDs
+            
+            -- Replace with our enhanced version
+            viewer.GetCooldownIDs = function(self)
+                addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs called", name))
+                
+                -- Call original function to get IDs
+                local originalIDs = originalGetCooldownIDs[name](self)
+                
+                -- Process the cooldown elements for ping functionality
+                ElementHooker:ProcessCooldownElements(self, name)
+                
+                return originalIDs
+            end
+            
+            addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs replaced", name))
+        end
+    end
+end
+
+function ElementHooker:SetupLayoutEnhancements()
+    -- Hook into the layout process to add our ping functionality
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+
+    for _, viewerData in ipairs(viewers) do
+        local viewer = viewerData.viewer
+        local name = viewerData.name
+        
+        if viewer and viewer.SetLayout then
+            -- Store original SetLayout if we haven't already
+            if not self.originalSetLayout then
+                self.originalSetLayout = {}
+            end
+            
+            if not self.originalSetLayout[name] then
+                self.originalSetLayout[name] = viewer.SetLayout
+                
+                -- Create enhanced SetLayout
+                viewer.SetLayout = function(self, ...)
+                    addon.Logger:Debug("ElementHooker", string.format("%s SetLayout called", name))
+                    
+                    -- Call original SetLayout
+                    ElementHooker.originalSetLayout[name](self, ...)
+                    
+                    -- Add our ping functionality after layout
+                    C_Timer.After(0.1, function()
+                        ElementHooker:ProcessCooldownElements(self, name)
+                    end)
+                end
+                
+                addon.Logger:Debug("ElementHooker", string.format("%s SetLayout enhanced", name))
+            end
+        end
+    end
+end
+
+function ElementHooker:ProcessCooldownElements(viewer, viewerType)
+    if not viewer then
+        addon.Logger:Debug("ElementHooker", string.format("%s viewer is nil", viewerType))
         return
     end
     
-    local elementsFound = 0
+    if not viewer.itemFramePool then
+        addon.Logger:Debug("ElementHooker", string.format("%s viewer has no itemFramePool", viewerType))
+        return
+    end
+
+    -- Process all active cooldown frames
+    local processedCount = 0
+    local totalCount = 0
     
-    for i = 1, container:GetNumChildren() do
-        local child = select(i, container:GetChildren())
-        if child then
-            local childType = child:GetObjectType() or "unknown"
-            local childName = "unnamed"
-            
-            if child.GetName and type(child.GetName) == "function" then
-                local success, name = pcall(child.GetName, child)
-                if success and name then
-                    childName = name
-                end
+    for frame in viewer.itemFramePool:EnumerateActive() do
+        totalCount = totalCount + 1
+        if self:SetupCooldownFrameHook(frame, viewerType) then
+            processedCount = processedCount + 1
+        end
+    end
+
+    addon.Logger:Info("ElementHooker", string.format("%s viewer: %d total frames, %d processed successfully", 
+        viewerType, totalCount, processedCount))
+end
+
+function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
+    if not frame then
+        addon.Logger:Debug("ElementHooker", string.format("%s frame is nil", viewerType))
+        return false
+    end
+    
+    if frame.pingHookSetup then
+        addon.Logger:Debug("ElementHooker", string.format("%s frame already has ping hook", viewerType))
+        return false
+    end
+
+    -- Mark this frame as having our hook
+    frame.pingHookSetup = true
+
+    -- Get cooldown information
+    local cooldownID = frame.cooldownID
+    local spellID = nil
+    
+    addon.Logger:Debug("ElementHooker", string.format("%s frame cooldownID: %s", viewerType, tostring(cooldownID)))
+    
+    if cooldownID then
+        local cooldownInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+        if cooldownInfo then
+            spellID = cooldownInfo.spellID
+            addon.Logger:Debug("ElementHooker", string.format("%s frame spellID: %s", viewerType, tostring(spellID)))
+        else
+            addon.Logger:Debug("ElementHooker", string.format("%s frame cooldownInfo is nil", viewerType))
+        end
+    else
+        addon.Logger:Debug("ElementHooker", string.format("%s frame has no cooldownID", viewerType))
+    end
+
+    if not spellID then
+        addon.Logger:Debug("ElementHooker", string.format("No spell ID found for %s frame", viewerType))
+        return false
+    end
+
+    -- Create an invisible clickable frame overlay instead of modifying the original frame
+    local clickFrame = CreateFrame("Button", nil, frame)
+    clickFrame:SetAllPoints(frame)
+    clickFrame:SetFrameLevel(frame:GetFrameLevel() + 1)
+    clickFrame:EnableMouse(true)
+    clickFrame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    
+    -- Store reference to prevent garbage collection
+    frame.pingClickFrame = clickFrame
+    
+    clickFrame:SetScript("OnClick", function(self, button, down)
+        if button == "LeftButton" then
+            addon.Logger:Info("ElementHooker", string.format("Left click on %s spell %d", viewerType, spellID))
+            -- Use addon.PingService directly to ensure it's available
+            if addon.PingService and addon.PingService.PingSpellCooldown then
+                addon.PingService:PingSpellCooldown(spellID)
+            else
+                addon.Logger:Error("ElementHooker", "PingService not available")
+            end
+        elseif button == "RightButton" then
+            addon.Logger:Debug("ElementHooker", string.format("Right click on %s spell %d", viewerType, spellID))
+            -- Pass through to original frame if it has click handlers
+            if frame.GetScript and frame:GetScript("OnClick") then
+                frame:GetScript("OnClick")(frame, button, down)
+            end
+        end
+    end)
+
+    addon.Logger:Info("ElementHooker", string.format("Set up ping overlay for %s spell %d", viewerType, spellID))
+    return true
+end
+
+function ElementHooker:AreViewersReady()
+    local viewers = {
+        { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
+        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }, 
+        { name = "BuffIconCooldownViewer", viewer = _G["BuffIconCooldownViewer"] },
+        { name = "BuffBarCooldownViewer", viewer = _G["BuffBarCooldownViewer"] }
+    }
+    
+    local ready = true
+    for _, viewerData in ipairs(viewers) do
+        local viewer = viewerData.viewer
+        if not viewer then
+            addon.Logger:Debug("ElementHooker", string.format("%s not found", viewerData.name))
+            ready = false
+        elseif not viewer.itemFramePool then
+            addon.Logger:Debug("ElementHooker", string.format("%s has no itemFramePool", viewerData.name))
+            ready = false
+        else
+            addon.Logger:Debug("ElementHooker", string.format("%s is ready", viewerData.name))
+        end
+    end
+    
+    return ready
+end
+
+function ElementHooker:RefreshSystem(retryCount)
+    retryCount = retryCount or 0
+    local maxRetries = 3  -- Reducido significativamente
+    
+    if retryCount > maxRetries then
+        addon.Logger:Warning("ElementHooker", "Max refresh retries reached. Use /pingdebug to check system status")
+        return
+    end
+
+    addon.Logger:Debug("ElementHooker", string.format("Refresh attempt %d/%d", retryCount + 1, maxRetries + 1))
+    
+    -- Simple approach: just try to set up viewers again
+    if self:TrySetupViewers() then
+        addon.Logger:Info("ElementHooker", "System refresh successful")
+        return
+    end
+    
+    -- If failed, retry with longer delay
+    local delay = 2 + retryCount
+    addon.Logger:Debug("ElementHooker", string.format("Refresh failed, retrying in %d seconds", delay))
+    C_Timer.After(delay, function()
+        self:RefreshSystem(retryCount + 1)
+    end)
+end
+
+-- Safe cleanup function
+function ElementHooker:Cleanup()
+    if self.eventFrame then
+        self.eventFrame:UnregisterAllEvents()
+        self.eventFrame:SetScript("OnEvent", nil)
+    end
+    
+    -- Restore original functions if needed
+    if originalGetCooldownIDs then
+        for name, originalFunc in pairs(originalGetCooldownIDs) do
+            local viewerName = name .. "CooldownViewer"
+            if name == "Buff" then
+                viewerName = "BuffIconCooldownViewer"
+            elseif name == "Bar" then
+                viewerName = "BuffBarCooldownViewer"
             end
             
-            local shouldHook = false
-            
-            if child.spellID or child.itemID or child.cooldownID then
-                shouldHook = true
-            elseif childType == "Button" and child.GetAttribute then
-                local hasSpell = child:GetAttribute("spell")
-                local hasItem = child:GetAttribute("item")
-                if hasSpell or hasItem then
-                    shouldHook = true
-                end
-            end
-            
-            if shouldHook then
-                self:HookCooldownElement(child)
-                elementsFound = elementsFound + 1
+            local viewer = _G[viewerName]
+            if viewer then
+                viewer.GetCooldownIDs = originalFunc
             end
         end
     end
     
-    self:LogSuccess(viewerName .. ": " .. elementsFound .. " elements hooked")
-    
-    if container.HookScript then
-        container:HookScript("OnShow", function()
-            C_Timer.After(0.1, function()
-                self:HookCooldownButtons(container, viewerName)
-            end)
-        end)
-    end
+    systemInitialized = false
+    addon.Logger:Info("ElementHooker", "System cleaned up")
 end
 
-function PingCooldowns:HookCooldownElement(element)
-    if element.hookedByPingCooldowns then
-        return
+function ElementHooker:DoInitialProcessing()
+    addon.Logger:Debug("ElementHooker", "Starting initial processing")
+    
+    -- Process each viewer that exists
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+    
+    local processed = 0
+    for _, viewerData in ipairs(viewers) do
+        if viewerData.viewer then
+            self:ProcessCooldownElements(viewerData.viewer, viewerData.name)
+            processed = processed + 1
+        end
     end
-   
-    element.hookedByPingCooldowns = true
-    element.pingCooldownsLastClick = 0
-    element.pingCooldownsMouseOver = false
-    element.pingCooldownsAltDetected = false
-   
-    local function ResetClickState(self)
-        self.pingCooldownsAltDetected = false
-    end
-   
-    if element.HookScript then
-        local hoverSuccess = pcall(function()
-            element:HookScript("OnEnter", function(self)
-                self.pingCooldownsMouseOver = true
-                if IsAltKeyDown() then
-                    self.pingCooldownsAltDetected = true
-                    PingCooldowns:Log("Alt+Hover detected, ready for click...")
-                end
-            end)
-            
-            element:HookScript("OnLeave", function(self)
-                self.pingCooldownsMouseOver = false
-                C_Timer.After(3.0, function()
-                    if self then
-                        ResetClickState(self)
-                    end
-                end)
-            end)
-            
-            element:HookScript("OnUpdate", function(self)
-                if self.pingCooldownsMouseOver and IsAltKeyDown() and not self.pingCooldownsAltDetected then
-                    self.pingCooldownsAltDetected = true
-                    PingCooldowns:Log("Alt pressed during hover, ready for click...")
-                end
-            end)
-            
-            element:HookScript("OnMouseDown", function(self, button)
-                if button == "LeftButton" and self.pingCooldownsAltDetected and IsAltKeyDown() then
-                    local currentTime = GetTime()
-                    local timeSinceLastClick = currentTime - (self.pingCooldownsLastClick or 0)
-                    
-                    if timeSinceLastClick > 0.5 then
-                        PingCooldowns:Log("Alt+Click detected! Triggering cooldown share...")
-                        PingCooldowns:HandleCooldownClick(self)
-                        ResetClickState(self)
-                        self.pingCooldownsLastClick = currentTime
-                    else
-                        PingCooldowns:Log("Click too soon, ignoring...")
-                    end
-                end
-            end)
-        end)
-    else
-        self:Log("Element does not support HookScript")
-    end
+    
+    addon.Logger:Info("ElementHooker", string.format("Initial processing completed for %d viewers", processed))
 end
+
+return ElementHooker
