@@ -10,10 +10,45 @@ function PingService:Initialize()
     addon.Logger:Debug("PingService", "Ping service initialized")
 end
 
+-- Safe function to get talent override spells using available APIs
+function PingService:GetTalentOverrideSpell(spellID)
+    if not spellID then
+        return spellID
+    end
+    
+    -- Try different APIs in order of preference
+    local overrideID = spellID
+    
+    -- Method 1: Try FindSpellOverrideByID (most common)
+    if FindSpellOverrideByID then
+        local result = FindSpellOverrideByID(spellID)
+        if result and result ~= spellID then
+            overrideID = result
+        end
+    end
+    
+    -- Method 2: Try C_SpellBook.GetOverrideSpell if it exists
+    if overrideID == spellID and C_SpellBook and C_SpellBook.GetOverrideSpell then
+        local result = C_SpellBook.GetOverrideSpell(spellID)
+        if result and result ~= spellID then
+            overrideID = result
+        end
+    end
+    
+    return overrideID
+end
+
 function PingService:PingSpellCooldown(spellID)
     if not spellID then
         addon.Logger:Error("PingService", "No spell ID provided")
         return
+    end
+
+    -- Check for talent overrides first using safe method
+    local finalSpellID = self:GetTalentOverrideSpell(spellID)
+    
+    if finalSpellID ~= spellID then
+        addon.Logger:Debug("PingService", string.format("Talent override detected: %d -> %d", spellID, finalSpellID))
     end
 
     -- Check rate limiter if available
@@ -25,20 +60,20 @@ function PingService:PingSpellCooldown(spellID)
         end
     end
 
-    -- Get spell information
-    local spellInfo = C_Spell.GetSpellInfo(spellID)
-    if not spellInfo then
-        addon.Logger:Error("PingService", string.format("Could not get spell info for ID: %d", spellID))
+    -- Get spell link (this will use the correct talent version)
+    local spellLink = C_Spell.GetSpellLink(finalSpellID)
+    if not spellLink then
+        addon.Logger:Error("PingService", string.format("Could not get spell link for ID: %d", finalSpellID))
         return
     end
 
     -- Get cooldown information  
-    local cooldownInfo = C_Spell.GetSpellCooldown(spellID)
+    local cooldownInfo = C_Spell.GetSpellCooldown(finalSpellID)
     local isOnCooldown = cooldownInfo and cooldownInfo.duration > 0
     
-    -- Create message
-    local message = string.format("[%s] - %s", 
-        spellInfo.name,
+    -- Create message with spell link
+    local message = string.format("%s - %s", 
+        spellLink,
         isOnCooldown and "On Cooldown" or "Ready"
     )
 

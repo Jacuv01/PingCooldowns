@@ -12,6 +12,59 @@ local systemInitialized = false
 local originalGetCooldownIDs = {}
 local processingInProgress = {} -- Anti-reentry protection
 
+-- Safe function to get talent override spells using available APIs
+function ElementHooker:GetTalentOverrideSpell(spellID)
+    if not spellID then
+        return spellID
+    end
+    
+    -- Try different APIs in order of preference
+    local overrideID = spellID
+    
+    -- Method 1: Try FindSpellOverrideByID (most common)
+    if FindSpellOverrideByID then
+        local result = FindSpellOverrideByID(spellID)
+        if result and result ~= spellID then
+            overrideID = result
+        end
+    end
+    
+    -- Method 2: Try C_SpellBook.GetOverrideSpell if it exists
+    if overrideID == spellID and C_SpellBook and C_SpellBook.GetOverrideSpell then
+        local result = C_SpellBook.GetOverrideSpell(spellID)
+        if result and result ~= spellID then
+            overrideID = result
+        end
+    end
+    
+    -- Method 3: Try spellbook scanning (fallback)
+    if overrideID == spellID then
+        -- This is a more expensive fallback - scan the spellbook for overrides
+        local spellName = C_Spell.GetSpellName(spellID)
+        if spellName then
+            -- Scan current spec spells for overrides
+            local numSkillLines = C_SpellBook.GetNumSpellBookSkillLines()
+            for skillLineIndex = 1, numSkillLines do
+                local skillLineInfo = C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)
+                if skillLineInfo then
+                    for spellIndex = skillLineInfo.itemIndexOffset + 1, skillLineInfo.itemIndexOffset + skillLineInfo.numSpellBookItems do
+                        local spellInfo = C_SpellBook.GetSpellBookItemInfo(spellIndex, Enum.SpellBookSpellBank.Player)
+                        if spellInfo and spellInfo.name == spellName and spellInfo.spellID and spellInfo.spellID ~= spellID then
+                            overrideID = spellInfo.spellID
+                            break
+                        end
+                    end
+                    if overrideID ~= spellID then
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    return overrideID
+end
+
 function ElementHooker:Initialize()
     if systemInitialized then
         addon.Logger:Debug("ElementHooker", "System already initialized, skipping")
@@ -87,7 +140,11 @@ function ElementHooker:SetupEventHandler()
             -- Use safe delay for critical events to avoid taint
             if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
                 -- These events can cause taint, so wait longer and be more patient
-                addon.Logger:Debug("ElementHooker", "Critical event detected, scheduling delayed refresh")
+                addon.Logger:Info("ElementHooker", "Talent/spec change detected - clearing old hooks and refreshing")
+                
+                -- Clear old hooks to prevent stale spell IDs
+                ElementHooker:ClearFrameHooks()
+                
                 C_Timer.After(3, function()
                     ElementHooker:RefreshSystem(0) -- Start with retry count 0
                 end)
@@ -102,9 +159,61 @@ function ElementHooker:SetupEventHandler()
 end
 
 function ElementHooker:SetupCooldownIDReplacements()
-    -- DISABLED: This was causing stack overflow
-    -- Instead, we'll rely only on SetLayout hooks and periodic refresh
-    addon.Logger:Debug("ElementHooker", "Skipping GetCooldownIDs hooks to prevent stack overflow")
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+
+    for _, viewerData in ipairs(viewers) do
+        local viewer = viewerData.viewer
+        local name = viewerData.name
+        
+        if viewer and viewer.GetCooldownIDs then
+            -- Store original if not already stored
+            if not originalGetCooldownIDs[name] then
+                originalGetCooldownIDs[name] = viewer.GetCooldownIDs
+                
+                -- Anti-recursion flag
+                local isProcessing = false
+                
+                -- Create enhanced GetCooldownIDs
+                viewer.GetCooldownIDs = function(self)
+                    -- Prevent infinite recursion
+                    if isProcessing then
+                        addon.Logger:Debug("ElementHooker", name .. " GetCooldownIDs recursion prevented")
+                        return originalGetCooldownIDs[name](self)
+                    end
+                    
+                    isProcessing = true
+                    local originalIDs = originalGetCooldownIDs[name](self)
+                    isProcessing = false
+                    
+                    if not originalIDs then
+                        return originalIDs
+                    end
+                    
+                    -- Process talent overrides for spell IDs
+                    local updatedIDs = {}
+                    for i, spellID in ipairs(originalIDs) do
+                        local finalID = ElementHooker:GetTalentOverrideSpell(spellID)
+                        
+                        -- Only log if there's an actual override
+                        if finalID ~= spellID then
+                            addon.Logger:Debug("ElementHooker", string.format("%s: Spell %d -> %d", name, spellID, finalID))
+                        end
+                        
+                        table.insert(updatedIDs, finalID)
+                    end
+                    
+                    return updatedIDs
+                end
+                
+                addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs enhanced with talent override detection", name))
+            end
+        end
+    end
 end
 
 function ElementHooker:SetupLayoutEnhancements()
@@ -236,10 +345,17 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
     
     clickFrame:SetScript("OnClick", function(self, button, down)
         if button == "LeftButton" then
-            addon.Logger:Info("ElementHooker", string.format("Ping: %s spell %d", viewerType, spellID))
+            -- Check for talent override at click time for most current spell ID
+            local finalSpellID = ElementHooker:GetTalentOverrideSpell(spellID)
+            
+            if finalSpellID ~= spellID then
+                addon.Logger:Debug("ElementHooker", string.format("Click-time override: %d -> %d", spellID, finalSpellID))
+            end
+            
+            addon.Logger:Info("ElementHooker", string.format("Ping: %s spell %d", viewerType, finalSpellID))
             -- Use addon.PingService directly to ensure it's available
             if addon.PingService and addon.PingService.PingSpellCooldown then
-                addon.PingService:PingSpellCooldown(spellID)
+                addon.PingService:PingSpellCooldown(finalSpellID)
             else
                 addon.Logger:Error("ElementHooker", "PingService not available")
             end
@@ -302,6 +418,38 @@ function ElementHooker:RefreshSystem(retryCount)
     C_Timer.After(delay, function()
         self:RefreshSystem(retryCount + 1)
     end)
+end
+
+-- Clear old frame hooks to prevent stale spell IDs
+function ElementHooker:ClearFrameHooks()
+    local viewers = {
+        { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
+        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
+        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+    }
+    
+    local clearedCount = 0
+    for _, viewerData in ipairs(viewers) do
+        local viewer = viewerData.viewer
+        if viewer and viewer.itemFramePool then
+            for frame in viewer.itemFramePool:EnumerateActive() do
+                if frame.pingHookSetup then
+                    frame.pingHookSetup = nil
+                    if frame.pingClickFrame then
+                        frame.pingClickFrame:Hide()
+                        frame.pingClickFrame:SetScript("OnClick", nil)
+                        frame.pingClickFrame = nil
+                    end
+                    clearedCount = clearedCount + 1
+                end
+            end
+        end
+    end
+    
+    if clearedCount > 0 then
+        addon.Logger:Info("ElementHooker", string.format("Cleared %d old frame hooks", clearedCount))
+    end
 end
 
 -- Safe cleanup function
