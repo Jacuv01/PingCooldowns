@@ -7,6 +7,14 @@ local systemInitialized = false
 local originalGetCooldownIDs = {}
 local processingInProgress = {}
 
+--- Determines the override spell ID for a given spell ID.
+-- This function checks multiple sources for spell overrides, including:
+-- 1. `FindSpellOverrideByID`: Direct lookup for spell overrides.
+-- 2. `C_SpellBook.GetOverrideSpell`: Secondary lookup in the spell book.
+-- 3. Manual lookup in the spell book based on spell name and skill lines.
+-- If no override is found, the original spell ID is returned.
+-- @param spellID The ID of the spell to check for overrides.
+-- @return The override spell ID, or the original spell ID if no override is found.
 function ElementHooker:GetTalentOverrideSpell(spellID)
     if not spellID then
         return spellID
