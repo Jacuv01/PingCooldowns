@@ -61,14 +61,11 @@ function ElementHooker:Initialize()
 
     addon.Logger:Info("ElementHooker", "Setting up cooldown viewer system")
     
-    -- Don't fail initialization - just set up the event handlers
-    -- The actual hooking will happen when events fire
     self:SetupEventHandler()
     
     systemInitialized = true
     addon.Logger:Info("ElementHooker", "Event handlers set up - will hook viewers when they become available")
     
-    -- Try to do initial setup, but don't fail if it doesn't work
     C_Timer.After(2, function()
         self:TrySetupViewers()
     end)
@@ -78,8 +75,6 @@ end
 
 function ElementHooker:TrySetupViewers()
     addon.Logger:Debug("ElementHooker", "Attempting to set up viewers...")
-    
-    -- Get references to the cooldown viewers with detailed logging
     local viewers = {
         { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
         { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }, 
@@ -115,7 +110,6 @@ function ElementHooker:TrySetupViewers()
 end
 
 function ElementHooker:SetupEventHandler()
-    -- Create event frame to handle spec/talent changes
     if not self.eventFrame then
         self.eventFrame = CreateFrame("Frame", "PingCooldownsEventFrame")
         self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
@@ -125,19 +119,13 @@ function ElementHooker:SetupEventHandler()
         self.eventFrame:SetScript("OnEvent", function(self, event, ...)
             addon.Logger:Debug("ElementHooker", string.format("Event received: %s", event))
             
-            -- Use safe delay for critical events to avoid taint
             if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
-                -- These events can cause taint, so wait longer and be more patient
                 addon.Logger:Info("ElementHooker", "Talent/spec change detected - clearing old hooks and refreshing")
-                
-                -- Clear old hooks to prevent stale spell IDs
                 ElementHooker:ClearFrameHooks()
-                
                 C_Timer.After(3, function()
-                    ElementHooker:RefreshSystem(0) -- Start with retry count 0
+                    ElementHooker:RefreshSystem(0)
                 end)
             elseif event == "PLAYER_ENTERING_WORLD" then
-                -- This is usually safe but give it a moment to settle
                 C_Timer.After(1, function()
                     ElementHooker:RefreshSystem(0)
                 end)
@@ -153,51 +141,34 @@ function ElementHooker:SetupCooldownIDReplacements()
         { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
         { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
     }
-
     for _, viewerData in ipairs(viewers) do
         local viewer = viewerData.viewer
         local name = viewerData.name
-        
         if viewer and viewer.GetCooldownIDs then
-            -- Store original if not already stored
             if not originalGetCooldownIDs[name] then
                 originalGetCooldownIDs[name] = viewer.GetCooldownIDs
-                
-                -- Anti-recursion flag
                 local isProcessing = false
-                
-                -- Create enhanced GetCooldownIDs
                 viewer.GetCooldownIDs = function(self)
-                    -- Prevent infinite recursion
                     if isProcessing then
                         addon.Logger:Debug("ElementHooker", name .. " GetCooldownIDs recursion prevented")
                         return originalGetCooldownIDs[name](self)
                     end
-                    
                     isProcessing = true
                     local originalIDs = originalGetCooldownIDs[name](self)
                     isProcessing = false
-                    
                     if not originalIDs then
                         return originalIDs
                     end
-                    
-                    -- Process talent overrides for spell IDs
                     local updatedIDs = {}
                     for i, spellID in ipairs(originalIDs) do
                         local finalID = ElementHooker:GetTalentOverrideSpell(spellID)
-                        
-                        -- Only log if there's an actual override
                         if finalID ~= spellID then
                             addon.Logger:Debug("ElementHooker", string.format("%s: Spell %d -> %d", name, spellID, finalID))
                         end
-                        
                         table.insert(updatedIDs, finalID)
                     end
-                    
                     return updatedIDs
                 end
-                
                 addon.Logger:Debug("ElementHooker", string.format("%s GetCooldownIDs enhanced with talent override detection", name))
             end
         end
@@ -205,54 +176,39 @@ function ElementHooker:SetupCooldownIDReplacements()
 end
 
 function ElementHooker:SetupLayoutEnhancements()
-    -- Hook into the layout process to add our ping functionality
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
         { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
         { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
         { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
     }
-
     for _, viewerData in ipairs(viewers) do
         local viewer = viewerData.viewer
         local name = viewerData.name
-        
         if viewer and viewer.SetLayout then
-            -- Store original SetLayout if we haven't already
             if not self.originalSetLayout then
                 self.originalSetLayout = {}
             end
-            
             if not self.originalSetLayout[name] then
                 self.originalSetLayout[name] = viewer.SetLayout
-                
-                -- Create enhanced SetLayout
                 viewer.SetLayout = function(self, ...)
-                    -- Call original SetLayout first
                     ElementHooker.originalSetLayout[name](self, ...)
-                    
-                    -- Add our ping functionality after layout with longer delay
                     C_Timer.After(0.5, function()
                         ElementHooker:ProcessCooldownElements(self, name)
                     end)
                 end
-                
                 addon.Logger:Debug("ElementHooker", string.format("%s SetLayout enhanced", name))
             end
         end
     end
-    
-    -- Also set up periodic refresh to catch missed updates
     self:SetupPeriodicRefresh()
 end
 
 function ElementHooker:SetupPeriodicRefresh()
-    -- Set up a periodic timer to refresh frames every 5 seconds
     if not self.periodicTimer then
         self.periodicTimer = C_Timer.NewTicker(5, function()
             self:DoPeriodicRefresh()
         end)
-        addon.Logger:Debug("ElementHooker", "Periodic refresh timer set up")
     end
 end
 
@@ -280,7 +236,6 @@ function ElementHooker:ProcessCooldownElements(viewer, viewerType)
         return
     end
 
-    -- Process all active cooldown frames
     local processedCount = 0
     local totalCount = 0
     
@@ -321,37 +276,19 @@ function ElementHooker:SetupCooldownFrameHook(frame, viewerType)
         return false
     end
 
-    -- Create an invisible clickable frame overlay instead of modifying the original frame
     local clickFrame = CreateFrame("Button", nil, frame)
     clickFrame:SetAllPoints(frame)
     clickFrame:SetFrameLevel(frame:GetFrameLevel() + 1)
     clickFrame:EnableMouse(true)
     clickFrame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     
-    -- Store reference to prevent garbage collection
     frame.pingClickFrame = clickFrame
     
     clickFrame:SetScript("OnClick", function(self, button, down)
         if button == "LeftButton" then
-            -- Check for talent override at click time for most current spell ID
-            local finalSpellID = ElementHooker:GetTalentOverrideSpell(spellID)
-            
-            if finalSpellID ~= spellID then
-                addon.Logger:Debug("ElementHooker", string.format("Click-time override: %d -> %d", spellID, finalSpellID))
-            end
-            
-            addon.Logger:Info("ElementHooker", string.format("Ping: %s spell %d", viewerType, finalSpellID))
-            -- Use addon.PingService directly to ensure it's available
-            if addon.PingService and addon.PingService.PingSpellCooldown then
-                addon.PingService:PingSpellCooldown(finalSpellID)
-            else
-                addon.Logger:Error("ElementHooker", "PingService not available")
-            end
+            ElementHooker:HandleLeftClick(spellID, viewerType)
         elseif button == "RightButton" then
-            -- Pass through to original frame if it has click handlers
-            if frame.GetScript and frame:GetScript("OnClick") then
-                frame:GetScript("OnClick")(frame, button, down)
-            end
+            ElementHooker:HandleRightClick(frame, button, down)
         end
     end)
 
@@ -394,13 +331,11 @@ function ElementHooker:RefreshSystem(retryCount)
 
     addon.Logger:Debug("ElementHooker", string.format("Refresh attempt %d/%d", retryCount + 1, maxRetries + 1))
     
-    -- Simple approach: just try to set up viewers again
     if self:TrySetupViewers() then
         addon.Logger:Info("ElementHooker", "System refresh successful")
         return
     end
     
-    -- If failed, retry with longer delay
     local delay = 2 + retryCount
     addon.Logger:Debug("ElementHooker", string.format("Refresh failed, retrying in %d seconds", delay))
     C_Timer.After(delay, function()
@@ -408,7 +343,6 @@ function ElementHooker:RefreshSystem(retryCount)
     end)
 end
 
--- Clear old frame hooks to prevent stale spell IDs
 function ElementHooker:ClearFrameHooks()
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
@@ -440,20 +374,17 @@ function ElementHooker:ClearFrameHooks()
     end
 end
 
--- Safe cleanup function
 function ElementHooker:Cleanup()
     if self.eventFrame then
         self.eventFrame:UnregisterAllEvents()
         self.eventFrame:SetScript("OnEvent", nil)
     end
     
-    -- Cancel periodic timer
     if self.periodicTimer then
         self.periodicTimer:Cancel()
         self.periodicTimer = nil
     end
     
-    -- Restore original SetLayout functions if needed
     if self.originalSetLayout then
         for name, originalFunc in pairs(self.originalSetLayout) do
             local viewerName = name .. "CooldownViewer"
@@ -477,7 +408,6 @@ end
 function ElementHooker:DoInitialProcessing()
     addon.Logger:Debug("ElementHooker", "Starting initial processing")
     
-    -- Process each viewer that exists
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
         { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
@@ -494,6 +424,28 @@ function ElementHooker:DoInitialProcessing()
     end
     
     addon.Logger:Info("ElementHooker", string.format("Initial processing completed for %d viewers", processed))
+end
+
+function ElementHooker:HandleLeftClick(spellID, viewerType)
+    local finalSpellID = self:GetTalentOverrideSpell(spellID)
+    
+    if finalSpellID ~= spellID then
+        addon.Logger:Debug("ElementHooker", string.format("Click-time override: %d -> %d", spellID, finalSpellID))
+    end
+    
+    addon.Logger:Info("ElementHooker", string.format("Ping: %s spell %d", viewerType, finalSpellID))
+    
+    if addon.PingService and addon.PingService.PingSpellCooldown then
+        addon.PingService:PingSpellCooldown(finalSpellID)
+    else
+        addon.Logger:Error("ElementHooker", "PingService not available")
+    end
+end
+
+function ElementHooker:HandleRightClick(frame, button, down)
+    if frame.GetScript and frame:GetScript("OnClick") then
+        frame:GetScript("OnClick")(frame, button, down)
+    end
 end
 
 return ElementHooker
