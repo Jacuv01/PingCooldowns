@@ -1,12 +1,8 @@
 local addonName, addon = ...
 
--- Core Initialization Module
--- Handles addon startup and system initialization
-
 function addon:Initialize()
     addon.Logger:Info("Core", "PingCooldowns addon loading...")
     
-    -- Initialize modules in order
     if addon.RateLimiter and addon.RateLimiter.Initialize then
         addon.RateLimiter:Initialize()
         addon.Logger:Debug("Core", "Rate limiter initialized")
@@ -17,7 +13,7 @@ function addon:Initialize()
         addon.Logger:Debug("Core", "Ping service initialized")
     end
 
-    -- Set up event handling
+    self:SetupEvents()
     self:SetupEvents()
     
     addon.Logger:Info("Core", "PingCooldowns addon loaded successfully!")
@@ -43,7 +39,6 @@ function addon:OnPlayerEnteringWorld(isInitialLogin, isReloadingUi)
     addon.Logger:Info("Core", "Player entering world")
     
     if isInitialLogin or isReloadingUi then
-        -- Initialize element hooker system with delay to allow UI to load
         C_Timer.After(1, function()
             addon.Logger:Info("Core", "Initializing element hooker system...")
             
@@ -58,7 +53,6 @@ function addon:OnPlayerEnteringWorld(isInitialLogin, isReloadingUi)
             end
         end)
         
-        -- Secondary attempt for late-loading UI elements
         C_Timer.After(3, function()
             if addon.ElementHooker and addon.ElementHooker.RefreshSystem then
                 addon.Logger:Debug("Core", "Secondary system refresh")
@@ -69,7 +63,6 @@ function addon:OnPlayerEnteringWorld(isInitialLogin, isReloadingUi)
 end
 
 function addon:OnAddonLoaded(loadedAddonName)
-    -- Watch for cooldown-related addons that might affect our hooking
     local cooldownAddons = {
         "Blizzard_CooldownViewer",
         "WeakAuras",
@@ -84,7 +77,6 @@ function addon:OnAddonLoaded(loadedAddonName)
         if loadedAddonName == cooldownAddon then
             addon.Logger:Info("Core", string.format("Cooldown addon detected: %s", loadedAddonName))
             
-            -- Refresh our system after other addons load
             C_Timer.After(0.5, function()
                 if addon.ElementHooker and addon.ElementHooker.RefreshSystem then
                     addon.Logger:Debug("Core", string.format("Refreshing system after %s load", loadedAddonName))

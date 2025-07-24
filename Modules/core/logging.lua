@@ -1,12 +1,9 @@
 local addonName, addon = ...
 
--- Logger Module
--- Provides logging functionality for the addon
-
 local Logger = {}
 addon.Logger = Logger
 
-local ENABLE_LOGS = true
+local ENABLE_LOGS = false
 
 function Logger:ToggleLogging()
     ENABLE_LOGS = not ENABLE_LOGS

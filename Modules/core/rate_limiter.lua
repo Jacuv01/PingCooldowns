@@ -1,8 +1,5 @@
 local addonName, addon = ...
 
--- Rate Limiter Module
--- Prevents message spam by limiting message frequency
-
 local RateLimiter = {}
 addon.RateLimiter = RateLimiter
 
@@ -26,12 +23,10 @@ end
 function RateLimiter:CanSendMessage()
     local currentTime = GetTime()
     
-    -- Check if we're in cooldown period
     if (currentTime - state.lastLimitHit) < CONFIG.cooldownPeriod then
         return false, "In cooldown period"
     end
     
-    -- Clean old messages outside time window
     local cutoffTime = currentTime - CONFIG.timeWindow
     local validMessages = {}
     for _, timestamp in ipairs(state.messages) do
@@ -41,7 +36,6 @@ function RateLimiter:CanSendMessage()
     end
     state.messages = validMessages
     
-    -- Check if we can send
     if #state.messages >= CONFIG.maxMessages then
         state.lastLimitHit = currentTime
         return false, "Message limit reached"

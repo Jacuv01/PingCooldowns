@@ -1,27 +1,19 @@
 local addonName, addon = ...
 
--- Element Hooker Module
--- This module implements a safe approach similar to CooldownManagerControl
--- Instead of hooking SetLayout, we replace GetCooldownIDs function and use TRAIT_CONFIG_UPDATED
-
 local ElementHooker = {}
 addon.ElementHooker = ElementHooker
 
--- Track whether we've already set up our system
 local systemInitialized = false
 local originalGetCooldownIDs = {}
-local processingInProgress = {} -- Anti-reentry protection
+local processingInProgress = {}
 
--- Safe function to get talent override spells using available APIs
 function ElementHooker:GetTalentOverrideSpell(spellID)
     if not spellID then
         return spellID
     end
     
-    -- Try different APIs in order of preference
     local overrideID = spellID
     
-    -- Method 1: Try FindSpellOverrideByID (most common)
     if FindSpellOverrideByID then
         local result = FindSpellOverrideByID(spellID)
         if result and result ~= spellID then
@@ -29,7 +21,6 @@ function ElementHooker:GetTalentOverrideSpell(spellID)
         end
     end
     
-    -- Method 2: Try C_SpellBook.GetOverrideSpell if it exists
     if overrideID == spellID and C_SpellBook and C_SpellBook.GetOverrideSpell then
         local result = C_SpellBook.GetOverrideSpell(spellID)
         if result and result ~= spellID then
@@ -37,12 +28,9 @@ function ElementHooker:GetTalentOverrideSpell(spellID)
         end
     end
     
-    -- Method 3: Try spellbook scanning (fallback)
     if overrideID == spellID then
-        -- This is a more expensive fallback - scan the spellbook for overrides
         local spellName = C_Spell.GetSpellName(spellID)
         if spellName then
-            -- Scan current spec spells for overrides
             local numSkillLines = C_SpellBook.GetNumSpellBookSkillLines()
             for skillLineIndex = 1, numSkillLines do
                 local skillLineInfo = C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)

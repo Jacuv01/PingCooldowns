@@ -1,12 +1,10 @@
 local addonName, addon = ...
 
--- Main addon table setup
 addon.Logger = addon.Logger or {}
 addon.PingService = addon.PingService or {}
 addon.ElementHooker = addon.ElementHooker or {}
 addon.RateLimiter = addon.RateLimiter or {}
 
--- Event frame for main addon events
 local mainFrame = CreateFrame("Frame", "PingCooldownsMainFrame")
 mainFrame:RegisterEvent("ADDON_LOADED")
 mainFrame:RegisterEvent("PLAYER_LOGIN")
@@ -17,7 +15,6 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         if loadedAddonName == addonName then
             addon.Logger:Info("Core", "PingCooldowns addon files loaded")
             
-            -- Initialize saved variables if needed
             if not PingCooldownsDB then
                 PingCooldownsDB = { 
                     locked = false,
@@ -27,13 +24,11 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
     elseif event == "PLAYER_LOGIN" then
-        -- Initialize the addon after all systems are ready
         addon:Initialize()
         
-        -- Add test commands
         SLASH_PINGTEST1 = "/pingtest"
         SlashCmdList["PINGTEST"] = function(msg)
-            local spellID = tonumber(msg) or 1953 -- Default to Blink if no ID provided
+            local spellID = tonumber(msg) or 1953
             addon.Logger:Info("Core", "Testing ping with spell ID: " .. spellID)
             if addon.PingService and addon.PingService.PingSpellCooldown then
                 addon.PingService:PingSpellCooldown(spellID)
@@ -46,7 +41,6 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
         SlashCmdList["PINGDEBUG"] = function(msg)
             addon.Logger:Info("Core", "=== PingCooldowns Debug Info ===")
             
-            -- Check viewers
             local viewers = {
                 { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
                 { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] },
@@ -73,15 +67,12 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
                 end
             end
             
-            -- Check system status
             addon.Logger:Info("Core", string.format("System initialized: %s", 
                 addon.ElementHooker and "Yes" or "No"))
             
-            -- Enable debug mode temporarily
             PingCooldownsDB.debugMode = true
             addon.Logger:Info("Core", "Debug mode enabled")
             
-            -- Try manual refresh
             if addon.ElementHooker and addon.ElementHooker.RefreshSystem then
                 addon.ElementHooker:RefreshSystem(0)
             end
