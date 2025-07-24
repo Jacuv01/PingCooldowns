@@ -14,7 +14,6 @@ function addon:Initialize()
     end
 
     self:SetupEvents()
-    self:SetupEvents()
     
     addon.Logger:Info("Core", "PingCooldowns addon loaded successfully!")
 end
