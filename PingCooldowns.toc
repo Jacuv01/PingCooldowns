@@ -1,0 +1,23 @@
+## Interface: 100200
+## Title: PingCooldowns
+## Notes: An addon to manage ping cooldowns in World of Warcraft.
+## Author: Jacuv
+## Version: 1.0.0-beta
+## SavedVariables: PingCooldownsDB
+## X-Curse-Project-ID: 1313618
+
+# Core modules - Load order is important
+Modules/core/logging.lua
+Modules/core/rate_limiter.lua
+
+# Processing modules
+Modules/processing/ping_service.lua
+
+# Detection modules  
+Modules/detection/element_hooker.lua
+
+# Core initialization - Load last
+Modules/core/initialization.lua
+
+# Main Addon File - Load after all modules
+PingCooldowns.lua
