@@ -330,7 +330,7 @@ end
 
 function ElementHooker:RefreshSystem(retryCount)
     retryCount = retryCount or 0
-    local maxRetries = 3  -- Reducido significativamente
+    local maxRetries = 3  -- Significantly reduced
     
     if retryCount > maxRetries then
         addon.Logger:Warning("ElementHooker", "Max refresh retries reached. Use /pingdebug to check system status")
