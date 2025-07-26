@@ -88,7 +88,7 @@ end
 
 function PingService:GetCooldownTime(spellID)
     if not spellID then
-        return nil, nil
+        return false, 0
     end
     
     local cooldownInfo = C_Spell.GetSpellCooldown(spellID)
@@ -168,11 +168,27 @@ function PingService:PingSpellCooldown(spellID)
     if chatTarget == "SELF" then
         addon.Logger:Info("PingService", string.format("Displaying ping locally: %s", message))
         print("|cFFFFD700[PingCooldowns]|r " .. message)
+    elseif chatTarget == "INSTANCE_SAY" then
+        addon.Logger:Info("PingService", string.format("Sending ping to SAY (in instance): %s", message))
+        SendChatMessage(message, "SAY")
+        if addon.RateLimiter and addon.RateLimiter.RecordSentMessage then
+            addon.RateLimiter:RecordSentMessage()
+        end
     else
-        addon.Logger:Info("PingService", string.format("Sending ping: %s to %s", message, chatTarget))
-        -- Cast to proper chat type for SendChatMessage
+        addon.Logger:Info("PingService", string.format("Sending ping: %s to %s and SAY", message, chatTarget))
+        
+        -- Send to group chat (RAID or PARTY)
         local validChatTarget = (chatTarget == "RAID" and "RAID") or (chatTarget == "PARTY" and "PARTY") or "SAY"
         SendChatMessage(message, validChatTarget)
+        
+        -- Also send to SAY channel for nearby players, but not in PvP instances
+        local inInstance, instanceType = IsInInstance()
+        local isPvPInstance = instanceType == "arena" or instanceType == "pvp"
+        
+        if validChatTarget ~= "SAY" and not isPvPInstance then
+            SendChatMessage(message, "SAY")
+        end
+        
         if addon.RateLimiter and addon.RateLimiter.RecordSentMessage then
             addon.RateLimiter:RecordSentMessage()
         end
@@ -184,6 +200,14 @@ function PingService:GetChatTarget()
         return "RAID"
     elseif IsInGroup() then
         return "PARTY"
+    elseif IsInInstance() then
+        local inInstance, instanceType = IsInInstance()
+        -- Don't use SAY in PvP instances (arenas, battlegrounds)
+        if instanceType == "arena" or instanceType == "pvp" then
+            return "SELF"
+        else
+            return "INSTANCE_SAY"
+        end
     else
         return "SELF"
     end
