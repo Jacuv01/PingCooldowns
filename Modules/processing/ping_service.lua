@@ -132,7 +132,6 @@ function PingService:PingSpellCooldown(spellID)
         return
     end
 
-    -- Check for charges first
     local currentCharges, maxCharges, chargeCooldown = self:GetSpellCharges(finalSpellID)
     local statusText
     
