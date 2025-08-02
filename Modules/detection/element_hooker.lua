@@ -85,9 +85,7 @@ function ElementHooker:TrySetupViewers()
     addon.Logger:Debug("ElementHooker", "Attempting to set up viewers...")
     local viewers = {
         { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
-        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }, 
-        { name = "BuffIconCooldownViewer", viewer = _G["BuffIconCooldownViewer"] },
-        { name = "BuffBarCooldownViewer", viewer = _G["BuffBarCooldownViewer"] }
+        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }
     }
     
     local foundCount = 0
@@ -145,9 +143,7 @@ end
 function ElementHooker:SetupCooldownIDReplacements()
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" }
     }
     for _, viewerData in ipairs(viewers) do
         local viewer = viewerData.viewer
@@ -186,9 +182,7 @@ end
 function ElementHooker:SetupLayoutEnhancements()
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" }
     }
     for _, viewerData in ipairs(viewers) do
         local viewer = viewerData.viewer
@@ -223,9 +217,7 @@ end
 function ElementHooker:DoPeriodicRefresh()
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" }
     }
     
     for _, viewerData in ipairs(viewers) do
@@ -306,9 +298,7 @@ end
 function ElementHooker:AreViewersReady()
     local viewers = {
         { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
-        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }, 
-        { name = "BuffIconCooldownViewer", viewer = _G["BuffIconCooldownViewer"] },
-        { name = "BuffBarCooldownViewer", viewer = _G["BuffBarCooldownViewer"] }
+        { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }
     }
     
     local ready = true
@@ -354,9 +344,7 @@ end
 function ElementHooker:ClearFrameHooks()
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" }
     }
     
     local clearedCount = 0
@@ -396,11 +384,6 @@ function ElementHooker:Cleanup()
     if self.originalSetLayout then
         for name, originalFunc in pairs(self.originalSetLayout) do
             local viewerName = name .. "CooldownViewer"
-            if name == "Buff" then
-                viewerName = "BuffIconCooldownViewer"
-            elseif name == "Bar" then
-                viewerName = "BuffBarCooldownViewer"
-            end
             
             local viewer = _G[viewerName]
             if viewer then
@@ -418,9 +401,7 @@ function ElementHooker:DoInitialProcessing()
     
     local viewers = {
         { viewer = _G["EssentialCooldownViewer"], name = "Essential" },
-        { viewer = _G["UtilityCooldownViewer"], name = "Utility" },
-        { viewer = _G["BuffIconCooldownViewer"], name = "Buff" },
-        { viewer = _G["BuffBarCooldownViewer"], name = "Bar" }
+        { viewer = _G["UtilityCooldownViewer"], name = "Utility" }
     }
     
     local processed = 0

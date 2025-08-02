@@ -43,9 +43,7 @@ mainFrame:SetScript("OnEvent", function(self, event, ...)
             
             local viewers = {
                 { name = "EssentialCooldownViewer", viewer = _G["EssentialCooldownViewer"] },
-                { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] },
-                { name = "BuffIconCooldownViewer", viewer = _G["BuffIconCooldownViewer"] },
-                { name = "BuffBarCooldownViewer", viewer = _G["BuffBarCooldownViewer"] }
+                { name = "UtilityCooldownViewer", viewer = _G["UtilityCooldownViewer"] }
             }
             
             for _, viewerData in ipairs(viewers) do
