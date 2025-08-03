@@ -5,6 +5,7 @@
 ## Version: 1.1.0
 ## SavedVariables: PingCooldownsDB
 ## X-Curse-Project-ID: 1313618
+## X-Wago-ID: n6VPnEGd
 
 # Core modules - Load order is important
 Modules/core/logging.lua
